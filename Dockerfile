@@ -1,17 +1,16 @@
-FROM node:10-alpine
-ENV NODE_ENV "production"
-ENV PORT 8079
+FROM node:20-alpine
+ENV NODE_ENV="production"
+ENV PORT=8079
 EXPOSE 8079
 RUN addgroup mygroup && adduser -D -G mygroup myuser && mkdir -p /usr/src/app && chown -R myuser /usr/src/app
 
 # Prepare app directory
 WORKDIR /usr/src/app
-COPY package.json /usr/src/app/
-COPY yarn.lock /usr/src/app/
-RUN chown myuser /usr/src/app/yarn.lock
+COPY package.json package-lock.json /usr/src/app/
+RUN chown myuser /usr/src/app/package-lock.json
 
 USER myuser
-RUN yarn install
+RUN npm ci
 
 # Copy app files as root, then change ownership
 USER root
@@ -26,4 +25,4 @@ USER myuser
 # Start the app
 CMD ["/usr/local/bin/npm", "start"]
 
-#seabook1111/front-end:inject-1-4-v7
+#seabook1111/front-end:inject-1-4-v10

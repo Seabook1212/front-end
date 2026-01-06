@@ -2,28 +2,31 @@
   'use strict';
 
   var session      = require("express-session"),
-      RedisStore   = require('connect-redis')(session)
+      RedisStore   = require('connect-redis').default,
+      redis        = require('redis');
 
-  // Configure Redis with connection details that will be traced
-  var redisStoreOptions = {
-    host: process.env.REDIS_HOST || "session-db",
-    port: process.env.REDIS_PORT || 6379,
-    // Enable keep-alive for better connection management
-    enable_offline_queue: false,
-    retry_strategy: function(options) {
-      if (options.error && options.error.code === 'ECONNREFUSED') {
-        console.error('Redis connection refused');
-        return new Error('Redis connection refused');
+  // Create Redis client with connection details
+  var redisClient = redis.createClient({
+    socket: {
+      host: process.env.REDIS_HOST || "session-db",
+      port: process.env.REDIS_PORT || 6379,
+      reconnectStrategy: function(retries) {
+        if (retries > 10) {
+          console.error('Redis retry limit exceeded');
+          return new Error('Redis retry limit exceeded');
+        }
+        return Math.min(retries * 100, 3000);
       }
-      if (options.total_retry_time > 1000 * 60 * 60) {
-        return new Error('Redis retry time exhausted');
-      }
-      if (options.attempt > 10) {
-        return undefined;
-      }
-      return Math.min(options.attempt * 100, 3000);
     }
-  };
+  });
+
+  redisClient.on('error', function(err) {
+    console.error('Redis client error:', err);
+  });
+
+  redisClient.connect().catch(function(err) {
+    console.error('Failed to connect to Redis:', err);
+  });
 
   module.exports = {
     session: {
@@ -34,7 +37,10 @@
     },
 
     session_redis: {
-      store: new RedisStore(redisStoreOptions),
+      store: new RedisStore({
+        client: redisClient,
+        prefix: 'sess:'
+      }),
       name: 'md.sid',
       secret: 'sooper secret',
       resave: false,

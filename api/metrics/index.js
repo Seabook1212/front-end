@@ -8,7 +8,11 @@
   const metric = {
     http: {
       requests: {
-        duration: new client.Histogram('http_request_duration_seconds', 'request duration in seconds', ['service', 'method', 'path', 'status_code']),
+        duration: new client.Histogram({
+          name: 'http_request_duration_seconds',
+          help: 'request duration in seconds',
+          labelNames: ['service', 'method', 'path', 'status_code']
+        }),
       }
     }
   }
@@ -44,9 +48,14 @@
 
 
   app.use(middleware);
-  app.get("/metrics", function(req, res) {
+  app.get("/metrics", async function(req, res) {
       res.header("content-type", "text/plain");
-      return res.end(client.register.metrics())
+      try {
+        const metrics = await client.register.metrics();
+        return res.end(metrics);
+      } catch (err) {
+        res.status(500).end(err);
+      }
   });
 
   module.exports = app;

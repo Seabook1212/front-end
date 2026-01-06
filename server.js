@@ -55,6 +55,15 @@ app.use(catalogue);
 app.use(orders);
 app.use(user);
 
+/* Health check endpoint */
+app.get("/health", function(req, res) {
+  res.status(200).json({
+    status: "OK",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.use(helpers.errorHandler);
 
 var server = app.listen(process.env.PORT || 8079, function () {
