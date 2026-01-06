@@ -13,7 +13,17 @@ RUN chown myuser /usr/src/app/yarn.lock
 USER myuser
 RUN yarn install
 
+# Copy app files as root, then change ownership
+USER root
 COPY . /usr/src/app
+# make sure everything is readable by runtime user
+RUN chown -R myuser:mygroup /usr/src/app \
+ && chmod -R a+rX /usr/src/app
+
+# Switch back to myuser for running the app
+USER myuser
 
 # Start the app
 CMD ["/usr/local/bin/npm", "start"]
+
+#seabook1111/front-end:inject-1-4-v7

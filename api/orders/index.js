@@ -12,8 +12,9 @@
     console.log("Request received with body: " + JSON.stringify(req.body));
     var logged_in = req.cookies.logged_in;
     if (!logged_in) {
-      throw new Error("User not logged in.");
-      return
+      // throw new Error("User not logged in.");
+      // return
+      return helpers.respondStatusBody(res, 401, JSON.stringify({ error: "User not logged in." }));
     }
 
     var custId = req.session.customerId;
@@ -28,7 +29,30 @@
               console.log("No orders found for user: " + custId);
               return callback(null, []);
             }
-            callback(null, JSON.parse(body)._embedded.customerOrders);
+            // 非 2xx：不要 JSON.parse，更不要崩；降级为空（或者 callback(new Error(...))）
+            if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+              console.log("Orders service returned status:", response && response.statusCode);
+              return callback(null, []); // 降级：返回空列表，前端页面还能活
+            }
+
+                      // body 可能是对象，也可能是字符串
+            let jsonBody = body;
+            try {
+              if (typeof body === "string") jsonBody = JSON.parse(body);
+            } catch (e) {
+              // body 不是合法 JSON：降级为空
+              console.log("Invalid JSON from orders:", e.message);
+              return callback(null, []);
+            }
+            const orders =
+            (jsonBody &&
+              jsonBody._embedded &&
+              Array.isArray(jsonBody._embedded.customerOrders) &&
+              jsonBody._embedded.customerOrders) ||
+            [];
+
+            // callback(null, JSON.parse(body)._embedded.customerOrders);
+            return callback(null, orders);
           });
         }
     ],
@@ -49,8 +73,9 @@
     console.log("Request received with body: " + JSON.stringify(req.body));
     var logged_in = req.cookies.logged_in;
     if (!logged_in) {
-      throw new Error("User not logged in.");
-      return
+      // throw new Error("User not logged in.");
+      // return
+      return helpers.respondStatusBody(res, 401, JSON.stringify({ error: "User not logged in." }));
     }
 
     var custId = req.session.customerId;
@@ -62,8 +87,19 @@
               callback(error);
               return;
             }
+            // 非 2xx：直接报错或降级
+            if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+              return callback(new Error("customers service status " + (response && response.statusCode)));
+            }
+
             console.log("Received response: " + JSON.stringify(body));
-            var jsonBody = JSON.parse(body);
+            // var jsonBody = JSON.parse(body);
+            let jsonBody;
+            try {
+              jsonBody = (typeof body === "string") ? JSON.parse(body) : body;
+            } catch (e) {
+              return callback(new Error("customers invalid json"));
+            }
             var customerlink = jsonBody._links.customer.href;
             var addressLink = jsonBody._links.addresses.href;
             var cardLink = jsonBody._links.cards.href;

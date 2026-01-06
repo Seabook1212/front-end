@@ -248,7 +248,7 @@
     });
 
     app.get("/login", function(req, res, next) {
-        console.log("Received login request");
+        console.log("Received login request!!!!!!!!!!");
 
         async.waterfall([
                 function(callback) {

@@ -1,22 +1,27 @@
-var request      = require("request")
-  , express      = require("express")
-  , morgan       = require("morgan")
-  , path         = require("path")
-  , bodyParser   = require("body-parser")
-  , async        = require("async")
-  , cookieParser = require("cookie-parser")
-  , session      = require("express-session")
-  , config       = require("./config")
-  , helpers      = require("./helpers")
-  , cart         = require("./api/cart")
-  , catalogue    = require("./api/catalogue")
-  , orders       = require("./api/orders")
-  , user         = require("./api/user")
-  , metrics      = require("./api/metrics")
-  , app          = express()
+// Initialize tracing first before any other imports
+require('./tracing');
+
+var request         = require("request")
+  , express         = require("express")
+  , morgan          = require("morgan")
+  , path            = require("path")
+  , bodyParser      = require("body-parser")
+  , async           = require("async")
+  , cookieParser    = require("cookie-parser")
+  , session         = require("express-session")
+  , config          = require("./config")
+  , helpers         = require("./helpers")
+  , cart            = require("./api/cart")
+  , catalogue       = require("./api/catalogue")
+  , orders          = require("./api/orders")
+  , user            = require("./api/user")
+  , metrics         = require("./api/metrics")
+  , instrumentation = require("./instrumentation")
+  , app             = express()
 
 
 app.use(helpers.rewriteSlash);
+app.use(instrumentation.tracingMiddleware);
 app.use(metrics);
 app.use(express.static("public"));
 if(process.env.SESSION_REDIS) {
