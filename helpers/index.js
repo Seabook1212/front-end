@@ -44,7 +44,9 @@
    */
   helpers.respondStatusBody = function(res, statusCode, body) {
     res.writeHeader(statusCode);
-    res.write(body);
+    if (body !== undefined && body !== null) {
+      res.write(body);
+    }
     res.end();
   }
 

@@ -303,7 +303,9 @@
       console.log("[POST /orders] Final status:", status);
       console.log("[POST /orders] Final result:", JSON.stringify(result));
 
-      helpers.respondStatusBody(res, status, JSON.stringify(result));
+      // Handle empty response body from orders service
+      var responseBody = result !== undefined ? JSON.stringify(result) : JSON.stringify({ message: "Order created successfully" });
+      helpers.respondStatusBody(res, status, responseBody);
     });
   });
 
