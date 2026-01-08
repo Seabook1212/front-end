@@ -3,7 +3,7 @@
 
   var async = require("async")
     , express = require("express")
-    , request = require("request")
+    , request = require("../../helpers/traced-request")
     , helpers = require("../../helpers")
     , endpoints = require("../endpoints")
     , app = express()
@@ -13,7 +13,7 @@
     console.log("Request received: " + req.url + ", " + req.query.custId);
     var custId = helpers.getCustomerId(req, app.get("env"));
     console.log("Customer ID: " + custId);
-    request(endpoints.cartsUrl + "/" + custId + "/items", function (error, response, body) {
+    request(endpoints.cartsUrl + "/" + custId + "/items", req, function (error, response, body) {
       if (error) {
         return next(error);
       }
@@ -29,7 +29,7 @@
       uri: endpoints.cartsUrl + "/" + custId,
       method: 'DELETE'
     };
-    request(options, function (error, response, body) {
+    request(options, req, function (error, response, body) {
       if (error) {
         return next(error);
       }
@@ -83,7 +83,7 @@
       uri: endpoints.cartsUrl + "/" + custId + "/items/" + req.params.id.toString(),
       method: 'DELETE'
     };
-    request(options, function (error, response, body) {
+    request(options, req, function (error, response, body) {
       if (error) {
         return next(error);
       }
@@ -105,7 +105,7 @@
 
     async.waterfall([
       function (callback) {
-        request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), function (error, response, body) {
+        request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), req, function (error, response, body) {
           console.log(body);
           callback(error, JSON.parse(body));
         });
@@ -118,7 +118,7 @@
           body: { itemId: item.id, unitPrice: item.price }
         };
         console.log("POST to carts: " + options.uri + " body: " + JSON.stringify(options.body));
-        request(options, function (error, response, body) {
+        request(options, req, function (error, response, body) {
           if (error) {
             callback(error)
             return;
@@ -153,7 +153,7 @@
 
     async.waterfall([
       function (callback) {
-        request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), function (error, response, body) {
+        request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), req, function (error, response, body) {
           console.log(body);
           callback(error, JSON.parse(body));
         });
@@ -166,7 +166,7 @@
           body: { itemId: item.id, quantity: parseInt(req.body.quantity), unitPrice: item.price }
         };
         console.log("PATCH to carts: " + options.uri + " body: " + JSON.stringify(options.body));
-        request(options, function (error, response, body) {
+        request(options, req, function (error, response, body) {
           if (error) {
             callback(error)
             return;

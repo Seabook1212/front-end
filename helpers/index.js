@@ -1,7 +1,7 @@
 (function (){
   'use strict';
 
-  var request = require("request");
+  var request = require("./traced-request");
   var helpers = {};
 
   /* Public: errorHandler is a middleware that handles your errors
@@ -83,6 +83,7 @@
    * res  - the response object where the external service's output will be yield
    * next - callback to be invoked in case of error. If there actually is an error
    *        this function will be called, passing the error object as an argument
+   * req  - (optional) the request object for trace context propagation
    *
    * Examples:
    *
@@ -90,11 +91,11 @@
    *   helpers.simpleHttpRequest("http://api.example.org/users", res, function(err) {
    *     res.send({ error: err });
    *     res.end();
-   *   });
+   *   }, req);
    * });
    */
-  helpers.simpleHttpRequest = function(url, res, next) {
-    request.get(url, function(error, response, body) {
+  helpers.simpleHttpRequest = function(url, res, next, req) {
+    request.get(url, {}, req, function(error, response, body) {
       if (error) return next(error);
       helpers.respondSuccessBody(res, body);
     }.bind({res: res}));

@@ -1,24 +1,24 @@
 (function() {
     'use strict';
 
-    var async = require("async"), express = require("express"), request = require("request"), endpoints = require("../endpoints"), helpers = require("../../helpers"), app = express(), cookie_name = "logged_in"
+    var async = require("async"), express = require("express"), request = require("../../helpers/traced-request"), endpoints = require("../endpoints"), helpers = require("../../helpers"), app = express(), cookie_name = "logged_in"
 
 
     app.get("/customers/:id", function(req, res, next) {
-        helpers.simpleHttpRequest(endpoints.customersUrl + "/" + req.session.customerId, res, next);
+        helpers.simpleHttpRequest(endpoints.customersUrl + "/" + req.session.customerId, res, next, req);
     });
     app.get("/cards/:id", function(req, res, next) {
-        helpers.simpleHttpRequest(endpoints.cardsUrl + "/" + req.params.id, res, next);
+        helpers.simpleHttpRequest(endpoints.cardsUrl + "/" + req.params.id, res, next, req);
     });
 
     app.get("/customers", function(req, res, next) {
-        helpers.simpleHttpRequest(endpoints.customersUrl, res, next);
+        helpers.simpleHttpRequest(endpoints.customersUrl, res, next, req);
     });
     app.get("/addresses", function(req, res, next) {
-        helpers.simpleHttpRequest(endpoints.addressUrl, res, next);
+        helpers.simpleHttpRequest(endpoints.addressUrl, res, next, req);
     });
     app.get("/cards", function(req, res, next) {
-        helpers.simpleHttpRequest(endpoints.cardsUrl, res, next);
+        helpers.simpleHttpRequest(endpoints.cardsUrl, res, next, req);
     });
 
     // Create Customer - TO BE USED FOR TESTING ONLY (for now)
@@ -32,7 +32,7 @@
 
         console.log("Posting Customer: " + JSON.stringify(req.body));
 
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
@@ -52,7 +52,7 @@
             body: req.body
         };
         console.log("Posting Address: " + JSON.stringify(req.body));
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
@@ -116,7 +116,7 @@
             body: req.body
         };
         console.log("Posting Card: " + JSON.stringify(req.body));
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
@@ -133,7 +133,7 @@
             uri: endpoints.customersUrl + "/" + req.params.id,
             method: 'DELETE'
         };
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
@@ -150,7 +150,7 @@
             uri: endpoints.addressUrl + "/" + req.params.id,
             method: 'DELETE'
         };
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
@@ -167,7 +167,7 @@
             uri: endpoints.cardsUrl + "/" + req.params.id,
             method: 'DELETE'
         };
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
