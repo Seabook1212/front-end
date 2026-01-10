@@ -5,6 +5,12 @@
 
   // Express middleware for tracing HTTP requests
   function tracingMiddleware(req, res, next) {
+    // Skip tracing for health check and metrics endpoints
+    var pathsToSkip = ['/health', '/metrics'];
+    if (pathsToSkip.indexOf(req.path) !== -1) {
+      return next();
+    }
+
     var tracer = opentracing.globalTracer();
 
     // Extract parent span context from headers if present
