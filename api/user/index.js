@@ -68,7 +68,7 @@
             uri: endpoints.customersUrl + '/' + custId + '/cards',
             method: 'GET',
         };
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
@@ -91,7 +91,7 @@
             uri: endpoints.customersUrl + '/' + custId + '/addresses',
             method: 'GET',
         };
-        request(options, function(error, response, body) {
+        request(options, req, function(error, response, body) {
             if (error) {
                 return next(error);
             }
@@ -189,7 +189,7 @@
 
         async.waterfall([
                 function(callback) {
-                    request(options, function(error, response, body) {
+                    request(options, req, function(error, response, body) {
                         if (error !== null ) {
                             callback(error);
                             return;
@@ -218,7 +218,7 @@
                         uri: endpoints.cartsUrl + "/" + custId + "/merge" + "?sessionId=" + sessionId,
                         method: 'GET'
                     };
-                    request(options, function(error, response, body) {
+                    request(options, req, function(error, response, body) {
                         if (error) {
                             if(callback) callback(error);
                             return;
@@ -258,7 +258,7 @@
                         },
                         uri: endpoints.loginUrl
                     };
-                    request(options, function(error, response, body) {
+                    request(options, req, function(error, response, body) {
                         if (error) {
                             callback(error);
                             return;
@@ -283,7 +283,7 @@
                         uri: endpoints.cartsUrl + "/" + custId + "/merge" + "?sessionId=" + sessionId,
                         method: 'GET'
                     };
-                    request(options, function(error, response, body) {
+                    request(options, req, function(error, response, body) {
                         if (error) {
                             // if cart fails just log it, it prevenst login
                             console.log(error);

@@ -5,9 +5,14 @@
 
   // Express middleware for tracing HTTP requests
   function tracingMiddleware(req, res, next) {
-    // Skip tracing for health check and metrics endpoints
+    // Skip tracing for health check, metrics endpoints, and static assets
     var pathsToSkip = ['/health', '/metrics'];
-    if (pathsToSkip.indexOf(req.path) !== -1) {
+    if (pathsToSkip.indexOf(req.path) !== -1 ||
+        req.path.startsWith('/js/') ||
+        req.path.startsWith('/img/') ||
+        req.path.startsWith('/fonts/') ||
+        req.path.startsWith('/css/') ||
+        req.path.endsWith('.html')) {
       return next();
     }
 
@@ -29,6 +34,23 @@
 
     // Store span in request object for use in route handlers
     req.span = span;
+
+    // Manually inject B3 headers into the request for downstream propagation
+    // The zipkin-javascript-opentracing library doesn't properly support inject()
+    try {
+      var spanContext = span.context();
+      var traceId = spanContext.toTraceId ? spanContext.toTraceId() : null;
+      var spanId = spanContext.toSpanId ? spanContext.toSpanId() : null;
+
+      // Inject B3 headers into req.headers for downstream propagation
+      if (traceId && spanId) {
+        req.headers['x-b3-traceid'] = traceId;
+        req.headers['x-b3-spanid'] = spanId;
+        req.headers['x-b3-sampled'] = '1';
+      }
+    } catch (e) {
+      // Silently ignore errors - tracing is best effort
+    }
 
     // Wrap res.end to finish the span when response is sent
     var originalEnd = res.end;

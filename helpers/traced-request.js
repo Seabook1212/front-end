@@ -27,33 +27,35 @@
     }
 
     // Extract B3 headers from incoming request
-    var b3Headers = [
-      'x-b3-traceid',
-      'x-b3-spanid',
-      'x-b3-parentspanid',
-      'x-b3-sampled',
-      'x-b3-flags',
-      'b3' // Single B3 header format
-    ];
+    // B3 headers should be propagated with proper casing for Spring Boot compatibility
+    var b3HeaderMappings = {
+      'x-b3-traceid': 'X-B3-TraceId',
+      'x-b3-spanid': 'X-B3-SpanId',
+      'x-b3-parentspanid': 'X-B3-ParentSpanId',
+      'x-b3-sampled': 'X-B3-Sampled',
+      'x-b3-flags': 'X-B3-Flags',
+      'b3': 'b3'  // Single B3 header format
+    };
 
-    b3Headers.forEach(function(header) {
-      var headerLower = header.toLowerCase();
+    Object.keys(b3HeaderMappings).forEach(function(headerLower) {
+      var properCaseName = b3HeaderMappings[headerLower];
       if (req.headers[headerLower]) {
-        headers[header] = req.headers[headerLower];
+        headers[properCaseName] = req.headers[headerLower];
       }
     });
 
     // Extract baggage headers (custom request tracking)
-    var baggageHeaders = [
-      'x-vcap-request-id',
-      'x-request-id',
-      'x-correlation-id'
-    ];
+    // These should also use proper casing
+    var baggageHeaderMappings = {
+      'x-vcap-request-id': 'X-Vcap-Request-Id',
+      'x-request-id': 'X-Request-Id',
+      'x-correlation-id': 'X-Correlation-Id'
+    };
 
-    baggageHeaders.forEach(function(header) {
-      var headerLower = header.toLowerCase();
+    Object.keys(baggageHeaderMappings).forEach(function(headerLower) {
+      var properCaseName = baggageHeaderMappings[headerLower];
       if (req.headers[headerLower]) {
-        headers[header] = req.headers[headerLower];
+        headers[properCaseName] = req.headers[headerLower];
       }
     });
 
@@ -89,6 +91,17 @@
   }
 
   /**
+   * Generate a random 64-bit hex string for span ID
+   */
+  function generateSpanId() {
+    var bytes = [];
+    for (var i = 0; i < 8; i++) {
+      bytes.push(Math.floor(Math.random() * 256).toString(16).padStart(2, '0'));
+    }
+    return bytes.join('');
+  }
+
+  /**
    * Add tracing headers to request options
    */
   function addTracingToOptions(options, req) {
@@ -99,13 +112,28 @@
       // Extract and propagate tracing headers
       if (req && req.headers) {
         var tracingHeaders = extractTracingHeaders(req);
+
+        // For outbound requests, we need to create a new span ID
+        // but keep the same trace ID to maintain the trace chain
+        if (tracingHeaders['X-B3-TraceId']) {
+          // Generate a new span ID for this outbound call
+          var newSpanId = generateSpanId();
+
+          // Set the parent span ID to the current span ID
+          if (tracingHeaders['X-B3-SpanId']) {
+            tracingHeaders['X-B3-ParentSpanId'] = tracingHeaders['X-B3-SpanId'];
+          }
+
+          // Set the new span ID
+          tracingHeaders['X-B3-SpanId'] = newSpanId;
+        }
+
         Object.assign(options.headers, tracingHeaders);
         injectTracingHeaders(req, options.headers);
       }
 
       return options;
     } catch (error) {
-      console.error('[TRACE-ERROR] Error in addTracingToOptions:', error.message);
       // Return options unchanged if there's an error
       return options;
     }

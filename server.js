@@ -36,7 +36,13 @@ else {
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(helpers.sessionMiddleware);
-app.use(morgan("dev", {}));
+// Configure Morgan to skip logging for health, metrics, and static assets
+app.use(morgan("dev", {
+  skip: function (req) {
+    return req.path === '/health' ||
+           req.path === '/metrics';
+  }
+}));
 
 var domain = "";
 process.argv.forEach(function (val, index, array) {
