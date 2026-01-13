@@ -2,6 +2,7 @@
   'use strict';
 
   var request = require("./traced-request");
+  var logger = require("./logger");
   var helpers = {};
 
   /* Public: errorHandler is a middleware that handles your errors
@@ -71,7 +72,7 @@
      if (isInvalidRedirectPath(redirectPath)) {
        res.status(400).send('invalid URL to redirect to');
      }else {
-       console.log("redirecting")
+       logger.log(req, "redirecting")
        res.redirect(301, redirectPath );
      }
    }

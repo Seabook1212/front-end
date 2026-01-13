@@ -5,6 +5,7 @@
   var zipkin = require('zipkin');
   var HttpLogger = require('zipkin-transport-http').HttpLogger;
   var ZipkinJavascriptOpentracing = require('zipkin-javascript-opentracing');
+  var logger = require('./helpers/logger');
 
   // Configure the Zipkin endpoint
   var ZIPKIN_HOST = process.env.ZIPKIN_HOST || process.env.zipkin_host || 'jaeger-collector.observability.svc.cluster.local';
@@ -43,12 +44,12 @@
   var opentracing = require('opentracing');
   opentracing.initGlobalTracer(tracer);
 
-  console.log('Zipkin tracing initialized for service:', SERVICE_NAME);
-  console.log('Zipkin endpoint:', ZIPKIN_BASE_URL + '/api/v2/spans');
+  logger.logWithoutContext('Zipkin tracing initialized for service: ' + SERVICE_NAME);
+  logger.logWithoutContext('Zipkin endpoint: ' + ZIPKIN_BASE_URL + '/api/v2/spans');
 
   // Gracefully shut down the tracer on process exit
   process.on('SIGTERM', function() {
-    console.log('Zipkin tracer closing');
+    logger.logWithoutContext('Zipkin tracer closing');
     process.exit(0);
   });
 

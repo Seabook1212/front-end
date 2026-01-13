@@ -6,13 +6,14 @@
     , request = require("../../helpers/traced-request")
     , helpers = require("../../helpers")
     , endpoints = require("../endpoints")
+    , logger = require("../../helpers/logger")
     , app = express()
 
   // List items in cart for current logged in user.
   app.get("/cart", function (req, res, next) {
-    console.log("Request received: " + req.url + ", " + req.query.custId);
+    logger.log(req, "Request received: " + req.url + ", " + req.query.custId);
     var custId = helpers.getCustomerId(req, app.get("env"));
-    console.log("Customer ID: " + custId);
+    logger.log(req, "Customer ID: " + custId);
     request(endpoints.cartsUrl + "/" + custId + "/items", req, function (error, response, body) {
       if (error) {
         return next(error);
@@ -24,7 +25,7 @@
   // Delete cart
   app.delete("/cart", function (req, res, next) {
     var custId = helpers.getCustomerId(req, app.get("env"));
-    console.log('Attempting to delete cart for user: ' + custId);
+    logger.log(req, 'Attempting to delete cart for user: ' + custId);
     var options = {
       uri: endpoints.cartsUrl + "/" + custId,
       method: 'DELETE'
@@ -33,7 +34,7 @@
       if (error) {
         return next(error);
       }
-      console.log('User cart deleted with status: ' + response.statusCode);
+      logger.log(req, 'User cart deleted with status: ' + response.statusCode);
       helpers.respondStatus(res, response.statusCode);
     });
   });
@@ -44,7 +45,7 @@
       return next(new Error("Must pass id of item to delete"), 400);
     }
 
-    console.log("Delete item from cart: " + req.url);
+    logger.log(req, "Delete item from cart: " + req.url);
 
     var custId = helpers.getCustomerId(req, app.get("env"));
 
@@ -52,7 +53,7 @@
       (process.env.FAULT_FE_TYPEERROR_ENABLED === "true") &&
       ((req.get("X-Fault") || "").toUpperCase() === "FE-TE-01" || process.env.FAULTS_FE_TYPEERROR_ALWAYS === "true")) {
 
-      console.log("Delete item from cart: " + req.url);
+      logger.log(req, "Delete item from cart: " + req.url);
 
       // 模拟真实 bug：某些场景下 customerId 取不到（变成 undefined）
       custId = undefined;
@@ -68,7 +69,7 @@
       err.code = "UPSTREAM_CARTS_FAILURE";   // 可选：方便你分类
       err.statusCode = 500;                 // 可选：如果你的 errorHandler 识别这个字段
 
-      console.log("Delete item from cart: " + req.url);
+      logger.log(req, "Delete item from cart: " + req.url);
 
       return next(err);
     }
@@ -87,14 +88,14 @@
       if (error) {
         return next(error);
       }
-      console.log('Item deleted with status: ' + response.statusCode);
+      logger.log(req, 'Item deleted with status: ' + response.statusCode);
       helpers.respondStatus(res, response.statusCode);
     });
   });
 
   // Add new item to cart
   app.post("/cart", function (req, res, next) {
-    console.log("Attempting to add to cart: " + JSON.stringify(req.body));
+    logger.log(req, "Attempting to add to cart: " + JSON.stringify(req.body));
 
     if (req.body.id == null) {
       next(new Error("Must pass id of item to add"), 400);
@@ -106,7 +107,7 @@
     async.waterfall([
       function (callback) {
         request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), req, function (error, response, body) {
-          console.log(body);
+          logger.log(req, "Catalogue response: " + body);
           callback(error, JSON.parse(body));
         });
       },
@@ -117,7 +118,7 @@
           json: true,
           body: { itemId: item.id, unitPrice: item.price }
         };
-        console.log("POST to carts: " + options.uri + " body: " + JSON.stringify(options.body));
+        logger.log(req, "POST to carts: " + options.uri + " body: " + JSON.stringify(options.body));
         request(options, req, function (error, response, body) {
           if (error) {
             callback(error)
@@ -139,7 +140,7 @@
 
   // Update cart item
   app.post("/cart/update", function (req, res, next) {
-    console.log("Attempting to update cart item: " + JSON.stringify(req.body));
+    logger.log(req, "Attempting to update cart item: " + JSON.stringify(req.body));
 
     if (req.body.id == null) {
       next(new Error("Must pass id of item to update"), 400);
@@ -154,7 +155,7 @@
     async.waterfall([
       function (callback) {
         request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), req, function (error, response, body) {
-          console.log(body);
+          logger.log(req, "Catalogue response: " + body);
           callback(error, JSON.parse(body));
         });
       },
@@ -165,7 +166,7 @@
           json: true,
           body: { itemId: item.id, quantity: parseInt(req.body.quantity), unitPrice: item.price }
         };
-        console.log("PATCH to carts: " + options.uri + " body: " + JSON.stringify(options.body));
+        logger.log(req, "PATCH to carts: " + options.uri + " body: " + JSON.stringify(options.body));
         request(options, req, function (error, response, body) {
           if (error) {
             callback(error)
@@ -210,9 +211,8 @@
     const delay = Number(process.env.FAULT_FE_SLEEP_MS || 2000);   // 默认 2000ms
 
     if (Math.random() < pct / 100) {
-      console.log(
-        "FAULT_INJECTED fault_id=FE-SLEEP-01 fault_type=tail_latency delay_ms=%d path=%s",
-        delay, req.path
+      logger.log(req,
+        "FAULT_INJECTED fault_id=FE-SLEEP-01 fault_type=tail_latency delay_ms=" + delay + " path=" + req.path
       );
       await sleep(delay);
       return true;
