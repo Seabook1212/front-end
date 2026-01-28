@@ -14,6 +14,14 @@
    * */
 
   helpers.errorHandler = function(err, req, res, next) {
+    // Check if headers have already been sent
+    if (res.headersSent) {
+      // If headers are already sent, we can't send another response
+      // Just log the error and let Express handle it
+      logger.error(req, 'Error occurred after headers were sent: ' + err.message, err);
+      return next(err);
+    }
+
     var ret = {
       message: err.message,
       error:   err
