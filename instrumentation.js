@@ -27,9 +27,9 @@
     });
 
     // Add tags to the span
+    // Note: Don't set SPAN_KIND here - the serverTracer already sets kind: 'server'
     span.setTag(opentracing.Tags.HTTP_METHOD, req.method);
     span.setTag(opentracing.Tags.HTTP_URL, req.url);
-    span.setTag(opentracing.Tags.SPAN_KIND, opentracing.Tags.SPAN_KIND_RPC_SERVER);
     span.setTag('service.name', 'front-end');
 
     // Store span in request object for use in route handlers

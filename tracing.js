@@ -11,7 +11,7 @@
   var ZIPKIN_HOST = process.env.ZIPKIN_HOST || process.env.zipkin_host || 'jaeger-collector.observability.svc.cluster.local';
   var ZIPKIN_PORT = process.env.ZIPKIN_PORT || '9411';
   var ZIPKIN_BASE_URL = process.env.ZIPKIN_BASE_URL || 'http://' + ZIPKIN_HOST + ':' + ZIPKIN_PORT;
-  var SERVICE_NAME = process.env.SERVICE_NAME || 'front-end.sock-shop';
+  var SERVICE_NAME = process.env.SERVICE_NAME || 'front-end';
 
   // Create a CLS context (required for zipkin)
   var ctxImpl = new CLSContext('zipkin');
@@ -32,17 +32,25 @@
     sampler: new zipkin.sampler.CountingSampler(1.0) // 100% sampling
   });
 
-  // Wrap with OpenTracing API
-  var tracer = new ZipkinJavascriptOpentracing({
+  // Wrap with OpenTracing API for server spans
+  var serverTracer = new ZipkinJavascriptOpentracing({
     tracer: zipkinTracer,
     recorder: recorder,
     serviceName: SERVICE_NAME,
     kind: 'server'
   });
 
-  // Set as global tracer
+  // Create a separate tracer for client spans
+  var clientTracer = new ZipkinJavascriptOpentracing({
+    tracer: zipkinTracer,
+    recorder: recorder,
+    serviceName: SERVICE_NAME,
+    kind: 'client'
+  });
+
+  // Set the server tracer as global (for backwards compatibility with inbound requests)
   var opentracing = require('opentracing');
-  opentracing.initGlobalTracer(tracer);
+  opentracing.initGlobalTracer(serverTracer);
 
   logger.logWithoutContext('Zipkin tracing initialized for service: ' + SERVICE_NAME);
   logger.logWithoutContext('Zipkin endpoint: ' + ZIPKIN_BASE_URL + '/api/v2/spans');
@@ -53,5 +61,11 @@
     process.exit(0);
   });
 
-  module.exports = tracer;
+  // Export both tracers and the underlying zipkin tracer for direct access
+  module.exports = {
+    serverTracer: serverTracer,
+    clientTracer: clientTracer,
+    zipkinTracer: zipkinTracer,
+    ctxImpl: ctxImpl
+  };
 }());
