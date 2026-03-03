@@ -3,47 +3,51 @@
 
   var SERVICE_NAME = process.env.SERVICE_NAME || 'front-end';
 
-  /**
-   * Get current timestamp in ISO format
-   */
   function getTimestamp() {
     return new Date().toISOString();
   }
 
-  /**
-   * Extract trace ID and span ID from request headers
-   */
   function getTraceContext(req) {
-    if (!req || !req.headers) {
-      return { traceId: null, spanId: null };
+    var traceId = null;
+    var spanId = null;
+
+    if (req && req.headers) {
+      traceId = req.headers['x-b3-traceid'] || null;
+      spanId = req.headers['x-b3-spanid'] || null;
     }
 
-    var traceId = req.headers['x-b3-traceid'] || null;
-    var spanId = req.headers['x-b3-spanid'] || null;
+    if ((!traceId || !spanId) && req && req.span && req.span.context) {
+      try {
+        var spanContext = req.span.context();
+        if (!traceId && spanContext && typeof spanContext.toTraceId === 'function') {
+          traceId = spanContext.toTraceId();
+        }
+        if (!spanId && spanContext && typeof spanContext.toSpanId === 'function') {
+          spanId = spanContext.toSpanId();
+        }
+      } catch (e) {
+        // Best effort only.
+      }
+    }
 
-    return { traceId: traceId, spanId: spanId };
+    return {
+      traceId: traceId,
+      spanId: spanId
+    };
   }
 
-  /**
-   * Get the caller's file path in Java-style package format
-   */
   function getCallerInfo() {
     try {
       var stack = new Error().stack;
       var stackLines = stack.split('\n');
 
-      // Find the first line that's not from logger.js
       for (var i = 0; i < stackLines.length; i++) {
         var line = stackLines[i];
         if (line.indexOf('logger.js') === -1 &&
             line.indexOf('at ') !== -1 &&
             line.indexOf('node_modules') === -1) {
-
-          // Extract file path and line number
-          // Format: "at functionName (/path/to/file.js:line:col)"
           var match = line.match(/\(([^)]+)\)/);
           if (!match) {
-            // Sometimes it's "at /path/to/file.js:line:col" without parentheses
             match = line.match(/at\s+(.+:\d+:\d+)/);
             if (match) {
               match[1] = match[1].trim();
@@ -52,18 +56,12 @@
 
           if (match) {
             var fullPath = match[1];
-
-            // Extract path components
             var parts = fullPath.split(':');
-            var filePath = parts[0]; // /Users/user/project/front-end/api/cart/index.js
-            var lineNum = parts[1];   // 123
-
-            // Convert file path to Java-style package notation
-            // Find 'front-end' in path and take everything after it
+            var filePath = parts[0];
+            var lineNum = parts[1];
             var pathSegments = filePath.split('/');
             var frontEndIdx = -1;
 
-            // Find the 'front-end' directory index
             for (var j = 0; j < pathSegments.length; j++) {
               if (pathSegments[j] === 'front-end') {
                 frontEndIdx = j;
@@ -72,16 +70,12 @@
             }
 
             if (frontEndIdx !== -1 && frontEndIdx < pathSegments.length - 1) {
-              // Get segments after 'front-end'
               var relevantParts = pathSegments.slice(frontEndIdx + 1);
-
-              // Remove .js extension from last part
               var lastPart = relevantParts[relevantParts.length - 1];
               if (lastPart && lastPart.endsWith('.js')) {
                 relevantParts[relevantParts.length - 1] = lastPart.slice(0, -3);
               }
 
-              // Filter out empty segments and convert to Java-style: api.cart.index
               var filteredParts = [];
               for (var k = 0; k < relevantParts.length; k++) {
                 if (relevantParts[k] && relevantParts[k].length > 0) {
@@ -90,19 +84,15 @@
               }
 
               if (filteredParts.length > 0) {
-                var javaStyle = filteredParts.join('.');
-                return javaStyle + ':' + lineNum;
+                return filteredParts.join('.') + ':' + lineNum;
               }
             }
 
-            // Fallback: try to extract at least some path info
-            // Look for common directories like api, helpers, etc.
             var fileName = pathSegments[pathSegments.length - 1];
             if (fileName && fileName.endsWith('.js')) {
               fileName = fileName.slice(0, -3);
             }
 
-            // Try to get parent directory for better context
             if (pathSegments.length >= 2) {
               var parentDir = pathSegments[pathSegments.length - 2];
               if (parentDir && parentDir !== 'front-end') {
@@ -115,73 +105,190 @@
         }
       }
     } catch (e) {
-      // Silently fail - caller info is nice to have but not critical
+      // Best effort only.
     }
+
     return 'unknown';
   }
 
-  /**
-   * Format log message with timestamp, trace context, and caller info
-   * Format: "2026-01-13T08:57:30.719Z  INFO [front-end,traceId:xxx,spanId:yyy] --- [file.js:123] message"
-   */
-  function formatLogMessage(level, req, message, includeCallerInfo) {
-    var timestamp = getTimestamp();
-    var context = getTraceContext(req);
-    var callerInfo = includeCallerInfo ? getCallerInfo() : '';
-
-    var traceInfo;
-    if (context.traceId && context.spanId) {
-      traceInfo = '[' + SERVICE_NAME + ',traceId:' + context.traceId + ',spanId:' + context.spanId + ']';
-    } else if (context.traceId) {
-      traceInfo = '[' + SERVICE_NAME + ',traceId:' + context.traceId + ']';
-    } else {
-      traceInfo = '[' + SERVICE_NAME + ']';
+  function normalizeError(error) {
+    if (!error) {
+      return undefined;
     }
 
-    var callerPart = callerInfo ? ' --- [' + callerInfo + ']' : '';
+    if (error instanceof Error) {
+      return {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        code: error.code,
+        errno: error.errno,
+        syscall: error.syscall,
+        type: error.type,
+        status: error.status,
+        statusCode: error.statusCode
+      };
+    }
 
-    return timestamp + '  ' + level + ' ' + traceInfo + callerPart + ' : ' + message;
+    if (typeof error === 'object') {
+      return error;
+    }
+
+    return {
+      message: String(error)
+    };
   }
 
-  /**
-   * Format log message without trace context (for startup logs)
-   */
-  function formatLogMessageWithoutContext(level, message) {
-    var timestamp = getTimestamp();
-    return timestamp + '  ' + level + ' [' + SERVICE_NAME + '] : ' + message;
-  }
+  function mergeFields(entry, fields) {
+    var reserved = {
+      timestamp: true,
+      level: true,
+      service: true,
+      message: true,
+      trace_id: true,
+      span_id: true,
+      caller: true,
+      error: true
+    };
 
-  /**
-   * Logger wrapper that includes trace context, timestamp, and caller info
-   */
-  var logger = {
-    log: function(req, message) {
-      console.log(formatLogMessage('INFO', req, message, true));
-    },
+    if (!fields || typeof fields !== 'object') {
+      return;
+    }
 
-    info: function(req, message) {
-      console.log(formatLogMessage('INFO', req, message, true));
-    },
-
-    error: function(req, message, error) {
-      var formattedMsg = formatLogMessage('ERROR', req, message, true);
-      if (error) {
-        console.error(formattedMsg);
-        console.error('Error details:', error);
-      } else {
-        console.error(formattedMsg);
+    Object.keys(fields).forEach(function(key) {
+      if (fields[key] !== undefined && !reserved[key]) {
+        entry[key] = fields[key];
       }
-    },
+    });
+  }
 
-    warn: function(req, message) {
-      console.warn(formatLogMessage('WARN', req, message, true));
-    },
+  function buildEntry(level, req, message, fields, error, includeCallerInfo) {
+    var context = getTraceContext(req);
+    var entry = {
+      timestamp: getTimestamp(),
+      level: level,
+      service: SERVICE_NAME,
+      message: message
+    };
 
-    // For logs where req is not available (startup, etc)
-    logWithoutContext: function(message) {
-      console.log(formatLogMessageWithoutContext('INFO', message));
+    if (context.traceId) {
+      entry.trace_id = context.traceId;
     }
-  };
+    if (context.spanId) {
+      entry.span_id = context.spanId;
+    }
+    if (includeCallerInfo) {
+      entry.caller = getCallerInfo();
+    }
 
-  module.exports = logger;
+    mergeFields(entry, fields);
+
+    if (error) {
+      entry.error = normalizeError(error);
+    }
+
+    return entry;
+  }
+
+  function writeEntry(level, entry) {
+    var serialized = JSON.stringify(entry);
+
+    if (level === 'ERROR' || level === 'FATAL') {
+      console.error(serialized);
+      return;
+    }
+
+    if (level === 'WARN') {
+      console.warn(serialized);
+      return;
+    }
+
+    console.log(serialized);
+  }
+
+  function parseMeta(meta, error) {
+    if (meta instanceof Error && error === undefined) {
+      return {
+        fields: undefined,
+        error: meta
+      };
+    }
+
+    return {
+      fields: meta,
+      error: error
+    };
+  }
+
+  function emit(level, req, message, meta, error, includeCallerInfo) {
+    var parsed = parseMeta(meta, error);
+    var entry = buildEntry(level, req, message, parsed.fields, parsed.error, includeCallerInfo);
+    writeEntry(level, entry);
+  }
+
+  function attachErrorContext(error, fields) {
+    if (!error || typeof error !== 'object' || !fields || typeof fields !== 'object') {
+      return error;
+    }
+
+    error._logContext = Object.assign({}, error._logContext || {}, fields);
+    return error;
+  }
+
+  function getErrorContext(error) {
+    if (!error || typeof error !== 'object' || !error._logContext) {
+      return {};
+    }
+
+    return Object.assign({}, error._logContext);
+  }
+
+  function markErrorLogged(error, fields) {
+    if (!error || typeof error !== 'object') {
+      return error;
+    }
+
+    attachErrorContext(error, fields);
+    error._logged = true;
+    return error;
+  }
+
+  function wasErrorLogged(error) {
+    return !!(error && error._logged);
+  }
+
+  module.exports = {
+    log: function(req, message, meta) {
+      emit('INFO', req, message, meta, undefined, true);
+    },
+
+    info: function(req, message, meta) {
+      emit('INFO', req, message, meta, undefined, true);
+    },
+
+    warn: function(req, message, meta, error) {
+      emit('WARN', req, message, meta, error, true);
+    },
+
+    error: function(req, message, meta, error) {
+      emit('ERROR', req, message, meta, error, true);
+    },
+
+    logWithoutContext: function(message, meta) {
+      emit('INFO', null, message, meta, undefined, false);
+    },
+
+    warnWithoutContext: function(message, meta, error) {
+      emit('WARN', null, message, meta, error, false);
+    },
+
+    errorWithoutContext: function(message, meta, error) {
+      emit('ERROR', null, message, meta, error, false);
+    },
+
+    attachErrorContext: attachErrorContext,
+    getErrorContext: getErrorContext,
+    markErrorLogged: markErrorLogged,
+    wasErrorLogged: wasErrorLogged
+  };
 }());

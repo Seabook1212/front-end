@@ -14,20 +14,39 @@
    * */
 
   helpers.errorHandler = function(err, req, res, next) {
+    var status = err.status || err.statusCode || 500;
+    var errorContext = logger.getErrorContext(err);
+    var errorType = err.error_type || errorContext.error_type;
+    var shouldLog = status >= 500 && errorType !== 'validation' && !logger.wasErrorLogged(err);
+    var logFields = Object.assign({
+      operation: 'http_request',
+      target: req.originalUrl || req.url,
+      method: req.method,
+      error_type: errorType || 'internal',
+      status_code: status
+    }, errorContext);
+
     // Check if headers have already been sent
     if (res.headersSent) {
-      // If headers are already sent, we can't send another response
-      // Just log the error and let Express handle it
-      logger.error(req, 'Error occurred after headers were sent: ' + err.message, err);
+      if (shouldLog) {
+        req._errorLogged = true;
+        logger.error(req, 'Unhandled error after response started', logFields, err);
+      }
       return next(err);
     }
 
+    if (shouldLog) {
+      req._errorLogged = true;
+      logger.error(req, 'Unhandled request error', logFields, err);
+    }
+
+    req._errorHandled = true;
     var ret = {
       message: err.message,
       error:   err
     };
     res.
-      status(err.status || 500).
+      status(status).
       send(ret);
   };
 

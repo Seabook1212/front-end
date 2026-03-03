@@ -9,6 +9,16 @@
     , logger = require("../../helpers/logger")
     , app = express()
 
+  function createValidationError(message) {
+    var err = new Error(message);
+    err.error_type = 'validation';
+    return err;
+  }
+
+  function createApplicationError(message, fields) {
+    return logger.attachErrorContext(new Error(message), fields);
+  }
+
   // List items in cart for current logged in user.
   app.get("/cart", function (req, res, next) {
     logger.log(req, "Request received: " + req.url + ", " + req.query.custId);
@@ -42,7 +52,7 @@
   // Delete item from cart
   app.delete("/cart/:id", async function (req, res, next) {
     if (req.params.id == null) {
-      return next(new Error("Must pass id of item to delete"), 400);
+      return next(createValidationError("Must pass id of item to delete"));
     }
 
     logger.log(req, "Delete item from cart: " + req.url);
@@ -95,10 +105,10 @@
 
   // Add new item to cart
   app.post("/cart", function (req, res, next) {
-    logger.log(req, "Attempting to add to cart: " + JSON.stringify(req.body));
+    logger.log(req, "Attempting to add to cart");
 
     if (req.body.id == null) {
-      next(new Error("Must pass id of item to add"), 400);
+      next(createValidationError("Must pass id of item to add"));
       return;
     }
 
@@ -107,8 +117,26 @@
     async.waterfall([
       function (callback) {
         request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), req, function (error, response, body) {
-          logger.log(req, "Catalogue response: " + body);
-          callback(error, JSON.parse(body));
+          var item;
+
+          if (error) {
+            callback(error);
+            return;
+          }
+
+          try {
+            item = (typeof body === "string") ? JSON.parse(body) : body;
+          } catch (parseError) {
+            callback(logger.attachErrorContext(parseError, {
+              operation: 'parse_downstream_response',
+              dependency: 'catalogue',
+              target: endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(),
+              error_type: 'invalid_response'
+            }));
+            return;
+          }
+
+          callback(null, item);
         });
       },
       function (item, callback) {
@@ -118,7 +146,6 @@
           json: true,
           body: { itemId: item.id, unitPrice: item.price }
         };
-        logger.log(req, "POST to carts: " + options.uri + " body: " + JSON.stringify(options.body));
         request(options, req, function (error, response, body) {
           if (error) {
             callback(error)
@@ -132,7 +159,13 @@
         return next(err);
       }
       if (statusCode != 201) {
-        return next(new Error("Unable to add to cart. Status code: " + statusCode))
+        return next(createApplicationError("Unable to add to cart. Status code: " + statusCode, {
+          operation: 'cart.add',
+          dependency: 'carts',
+          target: endpoints.cartsUrl + "/" + custId + "/items",
+          error_type: 'unexpected_status',
+          status_code: statusCode
+        }));
       }
       helpers.respondStatus(res, statusCode);
     });
@@ -140,14 +173,14 @@
 
   // Update cart item
   app.post("/cart/update", function (req, res, next) {
-    logger.log(req, "Attempting to update cart item: " + JSON.stringify(req.body));
+    logger.log(req, "Attempting to update cart item");
 
     if (req.body.id == null) {
-      next(new Error("Must pass id of item to update"), 400);
+      next(createValidationError("Must pass id of item to update"));
       return;
     }
     if (req.body.quantity == null) {
-      next(new Error("Must pass quantity to update"), 400);
+      next(createValidationError("Must pass quantity to update"));
       return;
     }
     var custId = helpers.getCustomerId(req, app.get("env"));
@@ -155,8 +188,26 @@
     async.waterfall([
       function (callback) {
         request(endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(), req, function (error, response, body) {
-          logger.log(req, "Catalogue response: " + body);
-          callback(error, JSON.parse(body));
+          var item;
+
+          if (error) {
+            callback(error);
+            return;
+          }
+
+          try {
+            item = (typeof body === "string") ? JSON.parse(body) : body;
+          } catch (parseError) {
+            callback(logger.attachErrorContext(parseError, {
+              operation: 'parse_downstream_response',
+              dependency: 'catalogue',
+              target: endpoints.catalogueUrl + "/catalogue/" + req.body.id.toString(),
+              error_type: 'invalid_response'
+            }));
+            return;
+          }
+
+          callback(null, item);
         });
       },
       function (item, callback) {
@@ -166,7 +217,6 @@
           json: true,
           body: { itemId: item.id, quantity: parseInt(req.body.quantity), unitPrice: item.price }
         };
-        logger.log(req, "PATCH to carts: " + options.uri + " body: " + JSON.stringify(options.body));
         request(options, req, function (error, response, body) {
           if (error) {
             callback(error)
@@ -180,7 +230,13 @@
         return next(err);
       }
       if (statusCode != 202) {
-        return next(new Error("Unable to add to cart. Status code: " + statusCode))
+        return next(createApplicationError("Unable to add to cart. Status code: " + statusCode, {
+          operation: 'cart.update',
+          dependency: 'carts',
+          target: endpoints.cartsUrl + "/" + custId + "/items",
+          error_type: 'unexpected_status',
+          status_code: statusCode
+        }));
       }
       helpers.respondStatus(res, statusCode);
     });

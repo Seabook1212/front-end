@@ -2,6 +2,7 @@
   'use strict';
 
   var opentracing = require('opentracing');
+  var traceTags = require('./helpers/trace-tags');
 
   // Express middleware for tracing HTTP requests
   function tracingMiddleware(req, res, next) {
@@ -31,6 +32,7 @@
     span.setTag(opentracing.Tags.HTTP_METHOD, req.method);
     span.setTag(opentracing.Tags.HTTP_URL, req.url);
     span.setTag('service.name', 'front-end');
+    traceTags.setKubernetesTags(span);
 
     // Store span in request object for use in route handlers
     req.span = span;
@@ -49,6 +51,7 @@
         req.headers['x-b3-sampled'] = '1';
       }
     } catch (e) {
+      traceTags.setExceptionTags(span, e);
       // Silently ignore errors - tracing is best effort
     }
 
@@ -81,6 +84,7 @@
 
     span.setTag(opentracing.Tags.DB_TYPE, 'redis');
     span.setTag(opentracing.Tags.DB_STATEMENT, operationName);
+    traceTags.setKubernetesTags(span);
     if (key) {
       span.setTag('redis.key', key);
     }
@@ -88,6 +92,7 @@
     return function(err) {
       if (err) {
         span.setTag(opentracing.Tags.ERROR, true);
+        traceTags.setExceptionTags(span, err);
         span.log({
           event: 'error',
           'error.object': err,
@@ -115,6 +120,7 @@
     span.setTag(opentracing.Tags.HTTP_URL, url);
     span.setTag(opentracing.Tags.HTTP_METHOD, method || 'GET');
     span.setTag(opentracing.Tags.SPAN_KIND, opentracing.Tags.SPAN_KIND_RPC_CLIENT);
+    traceTags.setKubernetesTags(span);
 
     // Inject trace context into outbound request headers
     var headers = {};
@@ -134,6 +140,7 @@
 
     if (error || (statusCode && statusCode >= 400)) {
       span.setTag(opentracing.Tags.ERROR, true);
+      traceTags.setExceptionTags(span, error);
       span.log({
         event: 'error',
         message: error ? error.message : 'HTTP ' + statusCode,

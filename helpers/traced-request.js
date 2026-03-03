@@ -5,6 +5,7 @@
   var opentracing = require('opentracing');
   var url = require('url');
   var logger = require('./logger');
+  var traceTags = require('./trace-tags');
   var tracers = require('../tracing');
 
   /**
@@ -35,6 +36,101 @@
     } catch (e) {
       return '/';
     }
+  }
+
+  function sanitizeTarget(targetUrl) {
+    try {
+      var parsed = url.parse(targetUrl);
+      if (!parsed.protocol || !parsed.host) {
+        return targetUrl;
+      }
+
+      return parsed.protocol + '//' + parsed.host + (parsed.pathname || '/');
+    } catch (e) {
+      return targetUrl;
+    }
+  }
+
+  function classifyRequestFailure(error, response) {
+    if (error) {
+      if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
+        return 'timeout';
+      }
+      if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
+        return 'dns';
+      }
+      if (error.code === 'ECONNREFUSED') {
+        return 'connection_refused';
+      }
+      if (error.code === 'ECONNRESET' || error.code === 'EPIPE' || error.code === 'ECONNABORTED') {
+        return 'connection';
+      }
+      return 'network_error';
+    }
+
+    if (response && response.statusCode >= 500) {
+      return 'downstream_5xx';
+    }
+
+    return null;
+  }
+
+  function logDependencyFailure(req, method, targetUrl, serviceName, latencyMs, error, response) {
+    var errorType = classifyRequestFailure(error, response);
+    var fields;
+
+    if (!errorType) {
+      return;
+    }
+
+    fields = {
+      operation: 'outbound_http',
+      dependency: serviceName,
+      target: sanitizeTarget(targetUrl),
+      method: method,
+      error_type: errorType,
+      latency_ms: latencyMs
+    };
+
+    if (response) {
+      fields.status_code = response.statusCode;
+    }
+
+    if (error) {
+      logger.markErrorLogged(error, fields);
+      logger.error(req, 'Outbound dependency request failed', fields, error);
+      return;
+    }
+
+    logger.error(req, 'Outbound dependency returned 5xx', fields);
+  }
+
+  function attachStreamTracing(stream, tracing, req, method, targetUrl) {
+    var completed = false;
+    var startedAt = Date.now();
+
+    function finishOnce(error, response) {
+      var latencyMs;
+
+      if (completed) {
+        return;
+      }
+
+      completed = true;
+      latencyMs = Date.now() - startedAt;
+      logDependencyFailure(req, method, targetUrl, tracing.serviceName, latencyMs, error, response);
+      finishClientSpan(tracing.span, error, response);
+    }
+
+    stream.on('response', function(response) {
+      finishOnce(null, response);
+    });
+
+    stream.on('error', function(error) {
+      finishOnce(error, null);
+    });
+
+    return stream;
   }
 
   /**
@@ -89,6 +185,7 @@
     span.setTag(opentracing.Tags.HTTP_URL, targetUrl);
     span.setTag('peer.service', serviceName);
     span.setTag('component', 'http-client');
+    traceTags.setKubernetesTags(span);
 
     // Get trace context from span for header injection
     var headers = {};
@@ -205,8 +302,6 @@
       // Add W3C tracestate (optional, for vendor-specific data)
       headers['tracestate'] = 'sock-shop=' + spanId;
 
-      // Log outbound trace headers
-      logger.log(req, 'Outbound call to ' + serviceName + ' ' + path + ' | X-B3-TraceId: ' + traceId + ', X-B3-SpanId: ' + spanId + ', X-B3-ParentSpanId: ' + (parentSpanId || 'none'));
     }
 
     return {
@@ -240,6 +335,7 @@
 
       if (error) {
         span.setTag(opentracing.Tags.ERROR, true);
+        traceTags.setExceptionTags(span, error);
         span.log({
           event: 'error',
           'error.kind': error.name || 'Error',
@@ -328,11 +424,6 @@
         options.headers['traceparent'] = generateTraceparent(traceId, newSpanId, sampled === '1');
         options.headers['tracestate'] = 'sock-shop=' + newSpanId;
 
-        // Log outbound trace headers for debugging (streaming request)
-        var targetUrl = options.url || options.uri || 'unknown';
-        var serviceName = extractServiceName(targetUrl);
-        var path = extractPath(targetUrl);
-        logger.log(req, 'Outbound streaming call to ' + serviceName + ' ' + path + ' | X-B3-TraceId: ' + traceId + ', X-B3-SpanId: ' + newSpanId + ', X-B3-ParentSpanId: ' + (parentSpanId || 'none'));
       }
 
       return options;
@@ -346,6 +437,7 @@
    */
   function tracedGet(url, options, req, callback) {
     var targetUrl = url;
+    var startedAt;
 
     // Handle different argument patterns
     if (arguments.length === 1) {
@@ -372,6 +464,7 @@
         options.url = url;
       }
       targetUrl = options.url || url;
+      startedAt = Date.now();
 
       // Create client span
       var tracing = createClientSpan(req, 'GET', targetUrl);
@@ -379,15 +472,13 @@
 
       // If no callback (streaming), just add headers and return stream
       if (arguments.length === 3 || typeof callback !== 'function') {
-        // For streaming, we can't easily track the response
-        // Just propagate headers without detailed span (span created but finished immediately)
-        tracing.span.log({ event: 'streaming_request' });
-        tracing.span.finish();
-        return request.get(options);
+        return attachStreamTracing(request.get(options), tracing, req, 'GET', targetUrl);
       }
 
       // With callback, wrap it to finish span
       return request.get(options, function(error, response, body) {
+        var latencyMs = Date.now() - startedAt;
+        logDependencyFailure(req, 'GET', targetUrl, tracing.serviceName, latencyMs, error, response);
         finishClientSpan(tracing.span, error, response);
         callback(error, response, body);
       });
@@ -404,6 +495,7 @@
     var req;
     var cb;
     var method = 'GET';
+    var startedAt;
 
     // Parse arguments
     if (arguments.length === 2 && typeof reqOrCallback === 'function') {
@@ -431,19 +523,19 @@
 
     // If we have a req, create client span
     if (req) {
+      startedAt = Date.now();
       var tracing = createClientSpan(req, method, targetUrl);
       options.headers = Object.assign({}, options.headers, tracing.headers);
 
       if (cb) {
         return request(options, function(error, response, body) {
+          var latencyMs = Date.now() - startedAt;
+          logDependencyFailure(req, method, targetUrl, tracing.serviceName, latencyMs, error, response);
           finishClientSpan(tracing.span, error, response);
           cb(error, response, body);
         });
       } else {
-        // Streaming - finish span immediately
-        tracing.span.log({ event: 'streaming_request' });
-        tracing.span.finish();
-        return request(options);
+        return attachStreamTracing(request(options), tracing, req, method, targetUrl);
       }
     }
 
@@ -462,6 +554,7 @@
     return function(urlOrOptions, req, callback) {
       var options;
       var targetUrl;
+      var startedAt;
 
       // Handle (options, callback) pattern - no tracing
       if (arguments.length === 2 && typeof req === 'function') {
@@ -476,6 +569,7 @@
       }
 
       targetUrl = options.url || options.uri || '';
+      startedAt = Date.now();
 
       // Create client span
       var tracing = createClientSpan(req, method.toUpperCase(), targetUrl);
@@ -483,14 +577,13 @@
 
       if (callback) {
         return request[method.toLowerCase()](options, function(error, response, body) {
+          var latencyMs = Date.now() - startedAt;
+          logDependencyFailure(req, method.toUpperCase(), targetUrl, tracing.serviceName, latencyMs, error, response);
           finishClientSpan(tracing.span, error, response);
           callback(error, response, body);
         });
       } else {
-        // Streaming - finish span immediately
-        tracing.span.log({ event: 'streaming_request' });
-        tracing.span.finish();
-        return request[method.toLowerCase()](options);
+        return attachStreamTracing(request[method.toLowerCase()](options), tracing, req, method.toUpperCase(), targetUrl);
       }
     };
   }

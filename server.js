@@ -37,6 +37,22 @@ else {
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(helpers.sessionMiddleware);
+app.use(function(req, res, next) {
+  res.on('finish', function() {
+    if (res.statusCode >= 500 && !req._errorHandled && !req._errorLogged) {
+      req._errorLogged = true;
+      logger.error(req, 'Request completed with 5xx response', {
+        operation: 'http_request',
+        target: req.originalUrl || req.url,
+        method: req.method,
+        error_type: 'http_5xx',
+        status_code: res.statusCode
+      });
+    }
+  });
+
+  next();
+});
 // Configure Morgan to skip logging for health, metrics, and static assets
 // Add custom tokens for timestamp and trace context
 morgan.token('timestamp', function() {
@@ -93,4 +109,31 @@ app.use(helpers.errorHandler);
 var server = app.listen(process.env.PORT || 8079, function () {
   var port = server.address().port;
   logger.logWithoutContext("App now running in " + app.get("env") + " mode on port " + port);
+});
+
+process.on('unhandledRejection', function(reason) {
+  logger.errorWithoutContext('Unhandled promise rejection', {
+    operation: 'process',
+    error_type: 'unhandled_rejection'
+  }, reason instanceof Error ? reason : { message: String(reason), reason: reason });
+});
+
+process.on('uncaughtException', function(err) {
+  logger.errorWithoutContext('Uncaught exception', {
+    operation: 'process',
+    error_type: 'uncaught_exception'
+  }, err);
+
+  if (server && server.listening) {
+    server.close(function() {
+      process.exit(1);
+    });
+
+    setTimeout(function() {
+      process.exit(1);
+    }, 5000).unref();
+    return;
+  }
+
+  process.exit(1);
 });
