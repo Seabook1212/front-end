@@ -1,98 +1,138 @@
-[![Build Status](https://travis-ci.org/microservices-demo/front-end.svg?branch=master)](https://travis-ci.org/microservices-demo/front-end)
-[![](https://images.microbadger.com/badges/image/weaveworksdemos/front-end.svg)](http://microbadger.com/images/weaveworksdemos/front-end "Get your own image badge on microbadger.com")
-[![Actions Status](https://github.com/microservices-demo/front-end/workflows/ci/badge.svg)](https://github.com/microservices-demo/front-end/workflows/ci/badge.svg)
+# EviRCA Enhanced Sock Shop Front-end
 
+This repository contains the Node.js/Express front-end service used in the enhanced Sock Shop benchmark for **EviRCA: An Evidence-Aware Skill-Based LLM Agent and a Telemetry-Rich Multi-Modal Benchmark for Microservice Root Cause Analysis**.
 
-# Front-end app
----
-Front-end application written in [Node.js](https://nodejs.org/en/) that puts together all of the microservices under [microservices-demo](https://github.com/microservices-demo/microservices-demo).
+The service is derived from the Sock Shop `front-end` component, but has been modernized and instrumented for reproducible microservice RCA experiments. It acts as the user-facing entry point for the demo shop and forwards requests to downstream services such as catalogue, cart, orders, and user.
 
-# Build
+## Role in the Benchmark
 
-## Dependencies
+In the EviRCA benchmark, the enhanced Sock Shop system provides synchronized metrics, logs, traces, service topology, Chaos Mesh fault-injection artifacts, upgraded service implementations, and fine-grained RCA labels. This repository is the benchmark's front-end service implementation.
 
-<table>
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Version</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><a href="https://docker.com">Docker</a></td>
-      <td>>= 1.12</td>
-    </tr>
-    <tr>
-      <td><a href="https://docs.docker.com/compose/">Docker Compose</a></td>
-      <td>>= 1.8.0</td>
-    </tr>
-    <tr>
-      <td><a href="gnu.org/s/make">Make</a>&nbsp;(optional)</td>
-      <td>>= 4.1</td>
-    </tr>
-  </tbody>
-</table>
+Key changes relevant to RCA telemetry:
 
-## Node
+- Migrated runtime from the legacy Node.js stack to Node.js 20-compatible dependencies.
+- Exposes Prometheus metrics at `/metrics`, including HTTP latency, request count, in-flight requests, request size, response size, error count, and Node.js runtime metrics.
+- Creates distributed traces for service-entry requests and outbound calls to downstream services.
+- Propagates Zipkin B3 and W3C Trace Context headers across service boundaries.
+- Emits trace-aware structured logs with trace IDs, span IDs, operation metadata, status codes, dependency targets, and error context.
+- Adds health checking at `/health` and improved handling for 5xx responses, uncaught exceptions, dependency failures, and unhandled promise rejections.
 
-`npm install`
+## Service Overview
+
+The front-end serves the static Sock Shop UI from `public/` and mounts API routes for:
+
+- `/catalogue*`
+- `/cart*`
+- `/orders*`
+- `/user*`
+- `/metrics`
+- `/health`
+
+By default, the service listens on port `8079`.
+
+## Requirements
+
+- Node.js `>= 18.0.0` for local development
+- npm
+- Docker, if building or running the container image
+- Docker Compose, if using the bundled test environment
+
+## Configuration
+
+Common environment variables:
+
+| Name | Default | Description |
+| --- | --- | --- |
+| `PORT` | `8079` | HTTP port used by the service. |
+| `SERVICE_NAME` | `front-end` | Service name used in logs and traces. |
+| `ZIPKIN_HOST` | `jaeger-collector.observability.svc.cluster.local` | Zipkin-compatible collector host. |
+| `ZIPKIN_PORT` | `9411` | Zipkin-compatible collector port. |
+| `ZIPKIN_BASE_URL` | `http://${ZIPKIN_HOST}:${ZIPKIN_PORT}` | Full collector base URL. Overrides host/port composition. |
+| `SESSION_REDIS` | unset | Enables Redis-backed sessions when set. |
+| `REDIS_HOST` | `session-db` | Redis host for session storage. |
+| `REDIS_PORT` | `6379` | Redis port for session storage. |
+
+The service also accepts `--domain=<suffix>` to append a DNS suffix to downstream service names, matching the original Sock Shop deployment style.
+
+Example:
+
+```sh
+npm start -- --domain=.sock-shop
+```
+
+## Run Locally
+
+Install dependencies:
+
+```sh
+npm install
+```
+
+Start the service:
+
+```sh
+npm start
+```
+
+Check the service:
+
+```sh
+curl http://localhost:8079/health
+curl http://localhost:8079/metrics
+```
+
+For a complete working application, the downstream Sock Shop services must also be reachable by their expected service names.
 
 ## Docker
 
-`make test-image`
+Build the image:
 
-## Docker Compose
-
-`make up`
-
-# Test
-
-**Make sure that the microservices are up & running**
-
-## Unit & Functional tests:
-
+```sh
+docker build -t front-end .
 ```
+
+Run the container:
+
+```sh
+docker run --rm -p 8079:8079 front-end
+```
+
+The Docker image uses Node.js 20 Alpine and exposes port `8079`.
+
+## Test and Development Helpers
+
+The repository keeps the original Makefile workflow for local test and integration development:
+
+```sh
 make test
-```
-
-## End-to-End tests:
-  
-To make sure that the test suite is running against the latest (local) version with your changes, you need to manually build
-the image, run the container and attach it to the proper Docker networks.
-There is a make task that will do all this for you:
-
-```
+make up
 make dev
-```
-
-That will also tail the logs of the container to make debugging easy.
-Then you can run the tests with:
-
-```
 make e2e
+make down
 ```
 
-# Run
+Notes:
 
-## Node
+- `make test` builds the test image and runs the unit/functional tests.
+- `make up` starts the Docker Compose test environment, installs dependencies, and runs the service container.
+- `make dev` rebuilds the image and starts the development container.
+- `make e2e` runs the end-to-end test suite against the Docker Compose network.
+- The Makefile development server maps the service to `http://localhost:8080`, while the direct Node and production Docker defaults use `8079`.
 
-`npm start`
+## Repository Layout
 
-## Docker
+```text
+api/                 Express API route handlers for cart, catalogue, orders, user, and metrics
+helpers/             Shared request, logging, tracing, session, and error-handling helpers
+public/              Static Sock Shop front-end assets
+server.js            Express application entry point
+tracing.js           Zipkin/OpenTracing tracer setup
+instrumentation.js   Request and helper tracing middleware
+config.js            Session and Redis configuration
+Dockerfile           Production container definition
+Makefile             Local Docker/test workflow
+```
 
-`make server`
+## Citation Context
 
-# Use
-
-## Node
-
-`curl http://localhost:8081`
-
-## Docker Compose
-
-`curl http://localhost:8080`
-
-# Push
-
-`GROUP=weaveworksdemos COMMIT=test ./scripts/push.sh`
+This service is part of the enhanced Sock Shop system described in the EviRCA paper. The benchmark is designed for telemetry-rich, reproducible microservice RCA and supports multi-modal analysis over metrics, logs, traces, topology, and fault-injection metadata.

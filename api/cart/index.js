@@ -59,37 +59,6 @@
 
     var custId = helpers.getCustomerId(req, app.get("env"));
 
-    if ((process.env.FAULTS_ENABLED === "true") &&
-      (process.env.FAULT_FE_TYPEERROR_ENABLED === "true") &&
-      ((req.get("X-Fault") || "").toUpperCase() === "FE-TE-01" || process.env.FAULTS_FE_TYPEERROR_ALWAYS === "true")) {
-
-      logger.log(req, "Delete item from cart: " + req.url);
-
-      // 模拟真实 bug：某些场景下 customerId 取不到（变成 undefined）
-      custId = undefined;
-      custId.trim();  // 故意触发 TypeError
-    }
-
-    if ((process.env.FAULTS_ENABLED === "true") &&
-      (process.env.FAULT_FE_ERROR_ENABLED === "true") &&
-      ((req.get("X-Fault") || "").toUpperCase() === "FE-ERR-01" || process.env.FAULTS_FE_ERROR_ALWAYS === "true")) {
-
-      // 更像真实线上：这里不写“forced”，写一个业务语义错误
-      const err = new Error("Upstream dependency failure while fetching cart items");
-      err.code = "UPSTREAM_CARTS_FAILURE";   // 可选：方便你分类
-      err.statusCode = 500;                 // 可选：如果你的 errorHandler 识别这个字段
-
-      logger.log(req, "Delete item from cart: " + req.url);
-
-      return next(err);
-    }
-
-    try {
-      await injectSleepIfNeeded(req);
-    } catch (e) {
-      return next(e);
-    }
-
     var options = {
       uri: endpoints.cartsUrl + "/" + custId + "/items/" + req.params.id.toString(),
       method: 'DELETE'
@@ -241,42 +210,6 @@
       helpers.respondStatus(res, statusCode);
     });
   });
-
-  function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  /**
-   * FE-SLEEP-01: tail latency injection (10% probability)
-   * return true if slept, false otherwise
-   */
-  async function injectSleepIfNeeded(req) {
-    const faultsEnabled = process.env.FAULTS_ENABLED === "true";
-    const sleepEnabled = process.env.FAULT_FE_SLEEP_ENABLED === "true";
-    if (!faultsEnabled || !sleepEnabled) {
-      return false;
-    }
-
-    // 可选：是否必须带 header 才触发
-    const requireHeader = process.env.FAULT_FE_SLEEP_REQUIRE_HEADER === "true";
-    if (requireHeader && (req.get("X-Fault") || "").toUpperCase() !== "FE-SLEEP-01") {
-      return false;
-    }
-
-    const pct = Number(process.env.FAULT_FE_SLEEP_PCT || 10);      // 默认 10%
-    const delay = Number(process.env.FAULT_FE_SLEEP_MS || 2000);   // 默认 2000ms
-
-    if (Math.random() < pct / 100) {
-      logger.log(req,
-        "FAULT_INJECTED fault_id=FE-SLEEP-01 fault_type=tail_latency delay_ms=" + delay + " path=" + req.path
-      );
-      await sleep(delay);
-      return true;
-    }
-
-    return false;
-  }
-
 
   module.exports = app;
 }());
